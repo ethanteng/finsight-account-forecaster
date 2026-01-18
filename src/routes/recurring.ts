@@ -57,8 +57,12 @@ router.get('/patterns', authenticateUser, async (req: AuthenticatedRequest, res:
 router.put('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { endDate, amount, frequency } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pattern ID is required' });
+    }
 
     const pattern = await prisma.recurringPattern.findFirst({
       where: { id, userId },
@@ -88,7 +92,11 @@ router.put('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, 
 router.delete('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pattern ID is required' });
+    }
 
     const pattern = await prisma.recurringPattern.findFirst({
       where: { id, userId },

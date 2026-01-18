@@ -1,6 +1,7 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from 'plaid';
 import { getPrismaClient } from './prisma-client';
 import { Router } from 'express';
+import { persistTransactionsToDb } from './data/persistence';
 
 const prisma = getPrismaClient();
 
@@ -46,7 +47,7 @@ function handlePlaidError(error: any, operation: string) {
 
 export const setupPlaidRoutes = (app: Router) => {
   // Create link token
-  app.post('/api/plaid/create-link-token', async (req: any, res: any) => {
+  app.post('/create-link-token', async (req: any, res: any) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -71,7 +72,7 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Exchange public token for access token
-  app.post('/api/plaid/exchange-public-token', async (req: any, res: any) => {
+  app.post('/exchange-public-token', async (req: any, res: any) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -90,16 +91,62 @@ export const setupPlaidRoutes = (app: Router) => {
       const accessToken = exchangeResponse.data.access_token;
       const itemId = exchangeResponse.data.item_id;
 
+      // Get institution info
+      const itemResponse = await plaidClient.itemGet({
+        access_token: accessToken,
+      });
+      const institutionId = itemResponse.data.item.institution_id;
+      let institutionName = null;
+      
+      if (institutionId) {
+        try {
+          const institutionResponse = await plaidClient.institutionsGetById({
+            institution_id: institutionId,
+            country_codes: [CountryCode.Us],
+          });
+          institutionName = institutionResponse.data.institution.name;
+        } catch (error) {
+          console.error('Error fetching institution name:', error);
+        }
+      }
+
       // Store access token
-      await prisma.accessToken.create({
+      const tokenRecord = await prisma.accessToken.create({
         data: {
           token: accessToken,
           itemId,
           userId,
           isActive: true,
           lastRefreshed: new Date(),
+          institutionName,
         },
       });
+
+      // Fetch and persist accounts
+      try {
+        const accountsResponse = await plaidClient.accountsGet({
+          access_token: accessToken,
+        });
+
+        const accounts = accountsResponse.data.accounts
+          .filter((acc: any) => acc.type === 'depository')
+          .map((acc: any) => ({
+            account_id: acc.account_id,
+            name: acc.name,
+            type: acc.type,
+            subtype: acc.subtype,
+            mask: acc.mask,
+            balances: acc.balances,
+            official_name: acc.official_name,
+            institution: institutionName,
+          }));
+
+        // Persist accounts (empty transactions array, just to create accounts)
+        await persistTransactionsToDb(userId, [], accounts);
+      } catch (error) {
+        console.error('Error syncing accounts after connection:', error);
+        // Don't fail the whole request if account sync fails
+      }
 
       res.json({ 
         success: true,
@@ -113,7 +160,7 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Get accounts
-  app.get('/api/plaid/accounts', async (req: any, res: any) => {
+  app.get('/accounts', async (req: any, res: any) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -150,7 +197,7 @@ export const setupPlaidRoutes = (app: Router) => {
                 subtype: account.subtype,
                 mask: account.mask,
                 balances: account.balances,
-                institution: account.institution_name || null,
+                institution: tokenRecord.institutionName || null,
               });
             }
           }
@@ -168,7 +215,7 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Sync transactions
-  app.post('/api/plaid/sync-transactions', async (req: any, res: any) => {
+  app.post('/sync-transactions', async (req: any, res: any) => {
     try {
       const userId = req.user?.id;
       if (!userId) {

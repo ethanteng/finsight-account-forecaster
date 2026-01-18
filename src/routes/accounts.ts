@@ -26,7 +26,11 @@ router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: any) =>
 router.get('/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
 
     const account = await prisma.account.findFirst({
       where: { id, userId },

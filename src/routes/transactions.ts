@@ -9,8 +9,12 @@ const transactionService = new TransactionService();
 router.get('/account/:accountId', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { accountId } = req.params;
+    const accountId = Array.isArray(req.params.accountId) ? req.params.accountId[0] : req.params.accountId;
     const { startDate, endDate } = req.query;
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
 
     const start = startDate ? new Date(startDate as string) : undefined;
     const end = endDate ? new Date(endDate as string) : undefined;
@@ -33,7 +37,11 @@ router.get('/account/:accountId', authenticateUser, async (req: AuthenticatedReq
 router.post('/sync/:accountId', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { accountId } = req.params;
+    const accountId = Array.isArray(req.params.accountId) ? req.params.accountId[0] : req.params.accountId;
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID is required' });
+    }
 
     const result = await transactionService.syncAndPersistTransactions(userId, accountId);
 

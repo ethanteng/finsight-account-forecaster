@@ -36,7 +36,11 @@ router.post('/generate', authenticateUser, async (req: AuthenticatedRequest, res
 router.get('/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Forecast ID is required' });
+    }
 
     const forecast = await prisma.forecast.findFirst({
       where: { id, userId },
@@ -75,7 +79,11 @@ router.get('/:id', authenticateUser, async (req: AuthenticatedRequest, res: any)
 router.get('/:id/balance', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Forecast ID is required' });
+    }
 
     const forecast = await prisma.forecast.findFirst({
       where: { id, userId },
@@ -105,8 +113,12 @@ router.get('/:id/balance', authenticateUser, async (req: AuthenticatedRequest, r
 router.put('/transactions/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { amount, date, name, category, note } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Transaction ID is required' });
+    }
 
     const transaction = await prisma.forecastTransaction.findFirst({
       where: { id, userId },
@@ -138,7 +150,11 @@ router.put('/transactions/:id', authenticateUser, async (req: AuthenticatedReque
 router.delete('/transactions/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Transaction ID is required' });
+    }
 
     const transaction = await prisma.forecastTransaction.findFirst({
       where: { id, userId },

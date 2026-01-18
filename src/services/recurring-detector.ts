@@ -30,11 +30,12 @@ function normalizeMerchantName(name: string): string {
 }
 
 /**
- * Check if two amounts are similar (±5% variance)
+ * Check if two amounts are similar (±10% variance for more lenient matching)
  */
-function amountsSimilar(amount1: number, amount2: number, variance: number = 0.05): boolean {
+function amountsSimilar(amount1: number, amount2: number, variance: number = 0.10): boolean {
   const diff = Math.abs(amount1 - amount2);
   const avg = (Math.abs(amount1) + Math.abs(amount2)) / 2;
+  if (avg === 0) return amount1 === amount2;
   return diff <= avg * variance;
 }
 
@@ -73,7 +74,7 @@ function groupTransactions(transactions: any[]): TransactionGroup[] {
         merchantName,
         transactions: [transaction],
         averageAmount: amount,
-        amountVariance: amount * 0.05, // ±5%
+        amountVariance: amount * 0.10, // ±10%
       });
     }
   }
@@ -203,24 +204,36 @@ export class RecurringDetector {
     });
 
     if (transactions.length < 3) {
+      console.log(`Not enough transactions for pattern detection: ${transactions.length} < 3`);
       return []; // Need at least 3 transactions to detect patterns
     }
 
+    console.log(`Analyzing ${transactions.length} transactions for recurring patterns`);
+
     // Group transactions
     const groups = groupTransactions(transactions);
+    console.log(`Grouped transactions into ${groups.length} groups`);
 
     const patterns: any[] = [];
 
     // Analyze each group
     for (const group of groups) {
       if (group.transactions.length < 3) {
+        console.log(`Skipping group "${group.name}" - only ${group.transactions.length} transactions`);
         continue; // Skip groups with too few transactions
       }
 
+      console.log(`Analyzing group "${group.name}" with ${group.transactions.length} transactions, avg amount: ${group.averageAmount}`);
       const frequencyAnalysis = analyzeFrequency(group.transactions);
-      if (!frequencyAnalysis || frequencyAnalysis.confidence < minConfidence) {
+      if (!frequencyAnalysis) {
+        console.log(`No frequency pattern detected for "${group.name}"`);
         continue;
       }
+      if (frequencyAnalysis.confidence < minConfidence) {
+        console.log(`Pattern for "${group.name}" has low confidence: ${frequencyAnalysis.confidence} < ${minConfidence}`);
+        continue;
+      }
+      console.log(`Found pattern for "${group.name}": ${frequencyAnalysis.frequency}, confidence: ${frequencyAnalysis.confidence}`);
 
       const transactionType = determineTransactionType(group.transactions);
 

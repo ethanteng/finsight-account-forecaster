@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { authenticateUser, AuthenticatedRequest } from '../auth/middleware';
 import { TransactionService } from '../services/transaction-service';
+import { RecurringDetector } from '../services/recurring-detector';
 
 const router = Router();
 const transactionService = new TransactionService();
+const recurringDetector = new RecurringDetector();
 
 // Get transactions for an account
 router.get('/account/:accountId', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
@@ -45,9 +47,22 @@ router.post('/sync/:accountId', authenticateUser, async (req: AuthenticatedReque
 
     const result = await transactionService.syncAndPersistTransactions(userId, accountId);
 
+    // Automatically detect recurring patterns after syncing transactions
+    let patternsDetected = 0;
+    try {
+      console.log(`Auto-detecting patterns for account ${accountId} after syncing ${result.added} transactions`);
+      const patterns = await recurringDetector.redetectPatterns(userId, accountId, 0.5); // Lower threshold for auto-detection
+      patternsDetected = patterns.length;
+      console.log(`Detected ${patternsDetected} recurring patterns`);
+    } catch (error: any) {
+      console.error('Error auto-detecting patterns after sync:', error);
+      // Don't fail the sync if pattern detection fails
+    }
+
     res.json({
       success: true,
-      ...result
+      ...result,
+      patternsDetected
     });
   } catch (error: any) {
     console.error('Error syncing transactions:', error);

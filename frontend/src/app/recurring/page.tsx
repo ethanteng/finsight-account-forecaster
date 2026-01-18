@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import RecurringPatterns from '@/components/RecurringPatterns';
+import Modal from '@/components/Modal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -11,6 +12,17 @@ export default function RecurringPage() {
   const searchParams = useSearchParams();
   const accountId = searchParams.get('accountId');
   const [detecting, setDetecting] = useState(false);
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'info' | 'success' | 'error' | 'confirm';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
 
   const handleDetect = async () => {
     if (!accountId) return;
@@ -28,12 +40,39 @@ export default function RecurringPage() {
       });
 
       if (response.ok) {
-        // Patterns will be refreshed by the component
-        alert('Pattern detection completed!');
+        const data = await response.json();
+        const message = data.patterns && data.patterns.length > 0
+          ? `Detected ${data.patterns.length} recurring pattern(s)!`
+          : `No patterns detected. Found ${data.transactionCount || 0} transactions. You may need more transaction history or transactions with consistent timing.`;
+        setModal({
+          isOpen: true,
+          title: data.patterns && data.patterns.length > 0 ? 'Patterns Detected' : 'No Patterns Found',
+          message: message,
+          type: data.patterns && data.patterns.length > 0 ? 'success' : 'info',
+        });
+      } else {
+        let errorMessage = 'Failed to detect patterns';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        setModal({
+          isOpen: true,
+          title: 'Error',
+          message: errorMessage,
+          type: 'error',
+        });
       }
     } catch (error) {
       console.error('Error detecting patterns:', error);
-      alert('Error detecting patterns');
+      setModal({
+        isOpen: true,
+        title: 'Error',
+        message: 'Error detecting patterns',
+        type: 'error',
+      });
     } finally {
       setDetecting(false);
     }
@@ -69,6 +108,19 @@ export default function RecurringPage() {
 
         <RecurringPatterns accountId={accountId} />
       </div>
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => {
+          setModal({ ...modal, isOpen: false });
+          // Refresh patterns after modal closes
+          if (modal.type === 'success' || modal.type === 'info') {
+            window.location.reload();
+          }
+        }}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+      />
     </div>
   );
 }

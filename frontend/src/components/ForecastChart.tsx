@@ -22,16 +22,26 @@ export default function ForecastChart({ balanceSnapshots }: ForecastChartProps) 
     <div className="bg-gray-800 rounded-lg p-6">
       <h2 className="text-xl font-semibold mb-4">Balance Projection</h2>
       <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={data}>
+        <LineChart 
+          data={data}
+          margin={{ top: 5, right: 20, left: 20, bottom: 40 }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
           <XAxis 
             dataKey="date" 
             stroke="#9CA3AF"
             tickFormatter={(value) => formatDate(value)}
+            angle={-45}
+            textAnchor="end"
+            height={60}
+            interval="preserveStartEnd"
+            tick={{ fill: '#9CA3AF', fontSize: 12 }}
           />
           <YAxis 
             stroke="#9CA3AF"
             tickFormatter={(value) => formatCurrency(value)}
+            width={100}
+            tick={{ fill: '#9CA3AF', fontSize: 12 }}
           />
           <Tooltip
             contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151' }}

@@ -87,6 +87,31 @@ app.use('/api/transactions', transactionsRoutes);
 app.use('/api/forecasts', forecastsRoutes);
 app.use('/api/recurring', recurringRoutes);
 
+// Debug: Log all registered routes
+if (process.env.NODE_ENV !== 'production') {
+  console.log('Registered routes:');
+  console.log('  POST /api/plaid/create-link-token');
+  console.log('  POST /api/plaid/exchange-public-token');
+  console.log('  GET  /api/plaid/accounts');
+  console.log('  POST /api/plaid/sync-transactions');
+}
+
+// Catch-all for undefined routes (for debugging)
+app.use((req: Request, res: Response) => {
+  console.log(`404 - Route not found: ${req.method} ${req.path}`);
+  res.status(404).json({ 
+    error: 'Route not found',
+    method: req.method,
+    path: req.path,
+    availableRoutes: [
+      'POST /api/plaid/create-link-token',
+      'POST /api/plaid/exchange-public-token',
+      'GET /api/plaid/accounts',
+      'POST /api/plaid/sync-transactions'
+    ]
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {

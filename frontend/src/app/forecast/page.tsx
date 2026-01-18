@@ -27,6 +27,7 @@ export default function ForecastPage() {
   const [transactions, setTransactions] = useState<ForecastTransaction[]>([]);
   const [balanceSnapshots, setBalanceSnapshots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState(3);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
@@ -41,9 +42,16 @@ export default function ForecastPage() {
   const generateForecast = async () => {
     if (!accountId) return;
     setLoading(true);
+    setError(null);
 
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Not authenticated. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
       const endDate = new Date();
       endDate.setMonth(endDate.getMonth() + months);
 
@@ -65,9 +73,26 @@ export default function ForecastPage() {
         setForecast(data.forecast);
         setTransactions(data.transactions || []);
         setBalanceSnapshots(data.balanceSnapshots || []);
+        
+        // Show message if no transactions were generated
+        if (!data.transactions || data.transactions.length === 0) {
+          setError('No forecast transactions generated. You need to detect recurring patterns first. Go to "Manage Recurring Patterns" to detect patterns from your transaction history.');
+        }
+      } else {
+        let errorMessage = 'Failed to generate forecast';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        console.error('Forecast generation error:', errorMessage, response.status);
+        setError(errorMessage);
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Network error. Please check your connection.';
       console.error('Error generating forecast:', error);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -162,6 +187,13 @@ export default function ForecastPage() {
             className="bg-gray-800 text-white px-4 py-2 rounded border border-gray-700 w-32"
           />
         </div>
+
+        {error && (
+          <div className="mb-4 p-4 bg-red-900/50 border border-red-600 rounded-lg">
+            <p className="text-red-200 font-semibold">Error</p>
+            <p className="text-red-300 text-sm">{error}</p>
+          </div>
+        )}
 
         {loading ? (
           <div>Generating forecast...</div>
@@ -268,7 +300,20 @@ export default function ForecastPage() {
             )}
           </>
         ) : (
-          <div>No forecast data available</div>
+          <div className="bg-gray-800 rounded-lg p-8 text-center">
+            <p className="text-gray-400 mb-4">No forecast data available.</p>
+            <p className="text-sm text-gray-500 mb-4">
+              To generate a forecast, you need to:
+            </p>
+            <ol className="text-sm text-gray-500 list-decimal list-inside space-y-2 mb-4">
+              <li>Transactions are automatically synced when you connect your account</li>
+              <li>Detect recurring patterns (on the Recurring Patterns page)</li>
+              <li>Generate a forecast (this page will auto-generate when patterns exist)</li>
+            </ol>
+            <Link href="/" className="text-blue-400 hover:text-blue-300">
+              Go to Dashboard
+            </Link>
+          </div>
         )}
       </div>
     </div>

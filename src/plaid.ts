@@ -2,6 +2,8 @@ import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } fro
 import { getPrismaClient } from './prisma-client';
 import { Router } from 'express';
 import { persistTransactionsToDb } from './data/persistence';
+import { authenticateUser, AuthenticatedRequest } from './auth/middleware';
+import { TransactionService } from './services/transaction-service';
 
 const prisma = getPrismaClient();
 
@@ -46,13 +48,15 @@ function handlePlaidError(error: any, operation: string) {
 }
 
 export const setupPlaidRoutes = (app: Router) => {
+  // Test endpoint to verify routing
+  app.get('/test', (req: any, res: any) => {
+    res.json({ message: 'Plaid routes are working', timestamp: new Date().toISOString() });
+  });
+
   // Create link token
-  app.post('/create-link-token', async (req: any, res: any) => {
+  app.post('/create-link-token', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      const userId = req.user!.id;
 
       const request = {
         user: { client_user_id: userId },
@@ -72,12 +76,9 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Exchange public token for access token
-  app.post('/exchange-public-token', async (req: any, res: any) => {
+  app.post('/exchange-public-token', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      const userId = req.user!.id;
 
       const { public_token } = req.body;
       if (!public_token) {
@@ -123,6 +124,7 @@ export const setupPlaidRoutes = (app: Router) => {
       });
 
       // Fetch and persist accounts
+      const createdAccountIds: string[] = [];
       try {
         const accountsResponse = await plaidClient.accountsGet({
           access_token: accessToken,
@@ -143,15 +145,47 @@ export const setupPlaidRoutes = (app: Router) => {
 
         // Persist accounts (empty transactions array, just to create accounts)
         await persistTransactionsToDb(userId, [], accounts);
+
+        // Get the created account IDs from database
+        for (const account of accounts) {
+          const dbAccount = await prisma.account.findUnique({
+            where: { plaidAccountId: account.account_id },
+          });
+          if (dbAccount) {
+            createdAccountIds.push(dbAccount.id);
+          }
+        }
       } catch (error) {
         console.error('Error syncing accounts after connection:', error);
         // Don't fail the whole request if account sync fails
       }
 
+      // Automatically sync transactions for all created accounts
+      const transactionService = new TransactionService();
+      const syncResults: { accountId: string; success: boolean; error?: string }[] = [];
+      
+      for (const accountId of createdAccountIds) {
+        try {
+          await transactionService.syncAndPersistTransactions(userId, accountId);
+          syncResults.push({ accountId, success: true });
+          console.log(`Successfully synced transactions for account ${accountId}`);
+        } catch (error: any) {
+          console.error(`Error syncing transactions for account ${accountId}:`, error);
+          syncResults.push({ 
+            accountId, 
+            success: false, 
+            error: error.message || 'Unknown error' 
+          });
+          // Don't fail the whole request if transaction sync fails for one account
+        }
+      }
+
       res.json({ 
         success: true,
         access_token: accessToken,
-        item_id: itemId
+        item_id: itemId,
+        accountsSynced: createdAccountIds.length,
+        transactionSyncResults: syncResults
       });
     } catch (error) {
       const errorInfo = handlePlaidError(error, 'exchanging public token');
@@ -160,12 +194,9 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Get accounts
-  app.get('/accounts', async (req: any, res: any) => {
+  app.get('/accounts', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      const userId = req.user!.id;
 
       // Get user's access tokens
       const accessTokens = await prisma.accessToken.findMany({
@@ -215,12 +246,9 @@ export const setupPlaidRoutes = (app: Router) => {
   });
 
   // Sync transactions
-  app.post('/sync-transactions', async (req: any, res: any) => {
+  app.post('/sync-transactions', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      const userId = req.user!.id;
 
       const { accountId } = req.body;
       if (!accountId) {

@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finsight-account-forecaster-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: finsight
+      POSTGRES_PASSWORD: finsight_password
+      POSTGRES_DB: finsight_account_forecaster
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db-permissions.sql:/docker-entrypoint-initdb.d/01-permissions.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finsight -d finsight_account_forecaster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

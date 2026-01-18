@@ -1,0 +1,185 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String            @id @default(cuid())
+  email         String            @unique
+  passwordHash  String
+  isActive      Boolean           @default(true)
+  emailVerified Boolean           @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  
+  accounts            Account[]
+  accessTokens        AccessToken[]
+  transactions        Transaction[]
+  recurringPatterns   RecurringPattern[]
+  forecastTransactions ForecastTransaction[]
+  forecasts           Forecast[]
+
+  @@map("users")
+}
+
+model AccessToken {
+  id                   String    @id @default(cuid())
+  token                String    @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  itemId               String?
+  lastRefreshed        DateTime?
+  userId               String?
+  user                 User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isActive             Boolean   @default(true)
+  lastError            String?
+  lastChecked          DateTime?
+  institutionName      String?
+  transactionSyncCursor String?
+  lastTransactionSync  DateTime?
+
+  @@map("access_tokens")
+}
+
+model Account {
+  id                  String        @id @default(cuid())
+  plaidAccountId      String        @unique
+  name                String
+  type                String
+  subtype             String?
+  mask                String?
+  officialName        String?
+  currentBalance      Float?
+  availableBalance    Float?
+  currency            String?
+  institution         String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  lastSynced          DateTime?
+  balanceLastFetched  DateTime?
+  userId              String?
+  user                User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  transactions        Transaction[]
+  recurringPatterns   RecurringPattern[]
+  forecastTransactions ForecastTransaction[]
+  forecasts           Forecast[]
+
+  @@map("accounts")
+}
+
+model Transaction {
+  id                   String    @id @default(cuid())
+  plaidTransactionId   String    @unique
+  accountId            String
+  amount               Float
+  date                 DateTime
+  name                 String
+  category             String?
+  pending              Boolean
+  currency             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  lastSynced           DateTime?
+  authorizedDate       DateTime?
+  categoryId           String?
+  checkNumber          String?
+  location             String?
+  merchantName         String?
+  originalDescription  String?
+  paymentChannel       String?
+  paymentMethod        String?
+  pendingTransactionId String?
+  enriched_data        Json?
+  userId               String?
+  user                 User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([date])
+  @@index([userId])
+  @@map("transactions")
+}
+
+model RecurringPattern {
+  id              String   @id @default(cuid())
+  userId          String
+  accountId       String
+  name            String
+  merchantName    String?  // Normalized merchant name
+  amount          Float
+  amountVariance Float    @default(0.05) // ±5% variance for matching
+  frequency       String   // daily, weekly, biweekly, monthly, quarterly, yearly
+  dayOfMonth      Int?     // For monthly patterns (1-31)
+  dayOfWeek       Int?     // For weekly patterns (0-6, Sunday=0)
+  startDate       DateTime
+  endDate         DateTime? // Nullable - when pattern ends
+  transactionType String  // income, expense
+  confidence      Float    @default(0.0) // 0-1, based on pattern strength
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account             Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  forecastTransactions ForecastTransaction[]
+
+  @@index([userId])
+  @@index([accountId])
+  @@map("recurring_patterns")
+}
+
+model ForecastTransaction {
+  id                  String   @id @default(cuid())
+  userId              String
+  accountId           String
+  recurringPatternId  String?  // Nullable - if from pattern
+  forecastId          String?  // Nullable - which forecast this belongs to
+  isManual            Boolean  @default(false)
+  amount              Float
+  date                DateTime
+  name                String
+  category            String?
+  note                String?  // User-added notes
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account             Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  recurringPattern    RecurringPattern? @relation(fields: [recurringPatternId], references: [id], onDelete: SetNull)
+  forecast            Forecast?       @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([date])
+  @@index([forecastId])
+  @@map("forecast_transactions")
+}
+
+model Forecast {
+  id              String   @id @default(cuid())
+  userId          String
+  accountId       String
+  forecastDate    DateTime @default(now()) // When forecast was generated
+  startDate       DateTime
+  endDate         DateTime
+  initialBalance  Float
+  projectedBalance Float
+  metadata        Json?    // Settings used (includePatterns, etc.)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account             Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  forecastTransactions ForecastTransaction[]
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([forecastDate])
+  @@map("forecasts")
+}

@@ -200,13 +200,25 @@ export default function ForecastPage() {
         ) : forecast && balanceSnapshots.length > 0 ? (
           <>
             <div className="mb-6">
-              <ForecastChart balanceSnapshots={balanceSnapshots} />
+              <ForecastChart balanceSnapshots={balanceSnapshots} transactions={transactions} />
             </div>
 
             <div className="mb-6">
               <h2 className="text-2xl font-semibold mb-4">Projected Transactions</h2>
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {transactions.map((transaction) => (
+                {[...transactions].sort((a, b) => {
+                  // Sort by date first
+                  const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
+                  const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
+                  const dateDiff = dateA.getTime() - dateB.getTime();
+                  
+                  // If dates are equal, sort by name (description)
+                  if (dateDiff === 0) {
+                    return (a.name || '').localeCompare(b.name || '');
+                  }
+                  
+                  return dateDiff;
+                }).map((transaction) => (
                   <div key={transaction.id} className="bg-gray-800 rounded-lg p-4 flex justify-between items-center">
                     {editingId === transaction.id ? (
                       <div className="flex gap-2 flex-1">

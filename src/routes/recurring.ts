@@ -234,8 +234,12 @@ router.post('/patterns/create-from-transaction', authenticateUser, async (req: A
         .trim();
     };
 
+    // Determine transaction type: In Plaid, expenses are negative, income is positive
     const transactionType = transaction.amount > 0 ? 'income' : 'expense';
-    const patternAmount = amount || Math.abs(transaction.amount);
+    // Use the original transaction amount sign, or apply sign to user-provided amount based on type
+    const patternAmount = amount 
+      ? (transactionType === 'expense' ? -Math.abs(parseFloat(amount)) : Math.abs(parseFloat(amount)))
+      : transaction.amount;
     const patternName = name || transaction.name || transaction.merchantName || 'Recurring Transaction';
 
     // Create the pattern
@@ -246,7 +250,7 @@ router.post('/patterns/create-from-transaction', authenticateUser, async (req: A
         name: patternName,
         merchantName: normalizeMerchantName(transaction.merchantName || transaction.name || ''),
         amount: patternAmount,
-        amountVariance: patternAmount * 0.10, // ±10% default variance
+        amountVariance: Math.abs(patternAmount) * 0.10, // ±10% default variance based on absolute value
         frequency,
         dayOfMonth: dayOfMonth || null,
         dayOfWeek: dayOfWeek || null,

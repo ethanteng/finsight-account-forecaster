@@ -15,7 +15,9 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/ --ext .ts",
-    "lint:fix": "eslint src/ --ext .ts --fix"
+    "lint:fix": "eslint src/ --ext .ts --fix",
+    "delete-transactions": "ts-node scripts/delete-all-transactions.ts",
+    "reset-sync-cursor": "ts-node scripts/reset-sync-cursor.ts"
   },
   "keywords": [],
   "author": "",

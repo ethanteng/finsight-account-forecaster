@@ -35,12 +35,37 @@ export class TransactionService {
       throw new Error('No access token found');
     }
 
+    // Check if we have any transactions for this account
+    // If not, reset the cursor to fetch all transactions from the beginning
+    const existingTransactionCount = await prisma.transaction.count({
+      where: {
+        userId,
+        accountId,
+      },
+    });
+
+    let cursor = accessToken.transactionSyncCursor || null;
+    
+    // If no transactions exist, reset cursor to fetch everything from the beginning
+    if (existingTransactionCount === 0 && cursor) {
+      console.log(`No transactions found for account ${accountId}, resetting sync cursor to fetch all transactions`);
+      cursor = null;
+      // Update the access token to clear the cursor
+      await prisma.accessToken.update({
+        where: { id: accessToken.id },
+        data: {
+          transactionSyncCursor: null,
+        },
+      });
+    }
+
     // Default to last 90 days if no dates provided
     const end = endDate || new Date();
     const start = startDate || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
+    console.log(`Fetching transactions for account ${accountId}, cursor: ${cursor ? 'set' : 'null'}, date range: ${start.toISOString()} to ${end.toISOString()}`);
+
     // Fetch transactions using transactionsSync
-    let cursor = accessToken.transactionSyncCursor || null;
     const allTransactions: any[] = [];
     let hasMore = true;
 
@@ -50,10 +75,14 @@ export class TransactionService {
         cursor: cursor || undefined,
       });
 
+      console.log(`Plaid sync response: ${syncResponse.data.added.length} added, ${syncResponse.data.modified.length} modified, ${syncResponse.data.removed.length} removed, has_more: ${syncResponse.data.has_more}`);
+
       // Filter transactions for this account
       const accountTransactions = syncResponse.data.added.filter(
         (t: any) => t.account_id === account.plaidAccountId
       );
+
+      console.log(`Filtered to ${accountTransactions.length} transactions for account ${account.plaidAccountId}`);
 
       allTransactions.push(...accountTransactions);
 
@@ -68,6 +97,8 @@ export class TransactionService {
         }
       }
     }
+
+    console.log(`Total transactions fetched: ${allTransactions.length}`);
 
     // Update cursor
     await prisma.accessToken.update({

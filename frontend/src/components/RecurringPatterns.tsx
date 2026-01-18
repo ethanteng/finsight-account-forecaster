@@ -268,7 +268,7 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                 <div className="flex-1">
                   <h3 className="font-semibold">{pattern.name}</h3>
                   <p className="text-sm text-gray-400">
-                    {formatCurrency(Math.abs(pattern.amount))} • {pattern.frequency} • {pattern.transactionType}
+                    {formatCurrency(pattern.amount)} • {pattern.frequency} • {pattern.transactionType}
                   </p>
                   <p className="text-xs text-gray-500">Confidence: {(pattern.confidence * 100).toFixed(0)}%</p>
                   {pattern.endDate && (
@@ -376,10 +376,11 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                           </select>
                         </div>
                         <div>
-                          <label className="block text-sm text-gray-400 mb-1">Amount</label>
+                          <label className="block text-sm text-gray-400 mb-1">Amount (always positive)</label>
                           <input
                             type="number"
                             step="0.01"
+                            min="0"
                             value={patternForm.amount}
                             onChange={(e) => setPatternForm({ ...patternForm, amount: e.target.value })}
                             className="w-full bg-gray-700 text-white px-3 py-2 rounded text-sm"
@@ -443,7 +444,7 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{transaction.name || transaction.merchantName || 'Unknown'}</p>
                         <p className="text-sm text-gray-400">
-                          {formatCurrency(Math.abs(transaction.amount))} • {formatDate(transaction.date)}
+                          {formatCurrency(transaction.amount)} • {formatDate(transaction.date)}
                         </p>
                       </div>
                       <button

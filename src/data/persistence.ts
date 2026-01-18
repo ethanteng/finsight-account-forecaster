@@ -86,12 +86,16 @@ export async function persistTransactionsToDb(
           where: { plaidTransactionId },
         });
 
+        // Plaid sends amounts with reversed signs: income is negative, expenses are positive
+        // Flip the sign so income is positive and expenses are negative (standard convention)
+        const normalizedAmount = -transaction.amount;
+
         if (existing) {
           // Update existing transaction
           await prisma.transaction.update({
             where: { plaidTransactionId },
             data: {
-              amount: transaction.amount,
+              amount: normalizedAmount,
               date: new Date(transaction.date),
               name: transaction.name,
               category,
@@ -110,7 +114,7 @@ export async function persistTransactionsToDb(
               plaidTransactionId,
               accountId: dbAccountId,
               userId,
-              amount: transaction.amount,
+              amount: normalizedAmount,
               date: new Date(transaction.date),
               name: transaction.name,
               category,

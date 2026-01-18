@@ -174,12 +174,14 @@ function analyzeFrequency(transactions: any[]): FrequencyAnalysis | null {
 
 /**
  * Determine transaction type (income or expense)
+ * In Plaid: expenses are negative, income is positive
  */
 function determineTransactionType(transactions: any[]): 'income' | 'expense' {
   // Count positive vs negative amounts
   const positiveCount = transactions.filter(t => t.amount > 0).length;
   const negativeCount = transactions.filter(t => t.amount < 0).length;
 
+  // Positive amounts are income, negative amounts are expenses
   return positiveCount > negativeCount ? 'income' : 'expense';
 }
 
@@ -236,6 +238,10 @@ export class RecurringDetector {
       console.log(`Found pattern for "${group.name}": ${frequencyAnalysis.frequency}, confidence: ${frequencyAnalysis.confidence}`);
 
       const transactionType = determineTransactionType(group.transactions);
+      
+      // Calculate average amount preserving the original sign from transactions
+      const totalAmount = group.transactions.reduce((sum, t) => sum + t.amount, 0);
+      const averageAmount = totalAmount / group.transactions.length;
 
       // Create pattern record
       const pattern = await prisma.recurringPattern.create({
@@ -244,8 +250,8 @@ export class RecurringDetector {
           accountId,
           name: group.name,
           merchantName: normalizeMerchantName(group.merchantName),
-          amount: group.averageAmount,
-          amountVariance: group.amountVariance,
+          amount: averageAmount,
+          amountVariance: Math.abs(averageAmount) * 0.10, // Variance based on absolute value
           frequency: frequencyAnalysis.frequency,
           dayOfMonth: frequencyAnalysis.dayOfMonth || null,
           dayOfWeek: frequencyAnalysis.dayOfWeek || null,

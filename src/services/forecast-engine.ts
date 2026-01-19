@@ -167,12 +167,12 @@ export class ForecastEngine {
       // Get existing forecast transactions for this forecast to avoid duplicates
       // Compare by pattern ID, date (day only), name, and amount
       // Query within transaction to ensure we see the latest state after deletion
+      // Include both manual and non-manual transactions to catch edited transactions
       const existingTransactions = await tx.forecastTransaction.findMany({
         where: {
           forecastId,
-          isManual: false,
           recurringPatternId: {
-            not: null, // Only check pattern-based transactions
+            not: null, // Only check pattern-based transactions (including edited ones that still have pattern ID)
           },
         },
         select: {
@@ -262,11 +262,12 @@ export class ForecastEngine {
       const normalizedAmount = Math.round(txnData.amount * 100) / 100;
       
       // Check for duplicate within transaction
+      // Include both manual and non-manual transactions to prevent duplicates
+      // when a user has edited a pattern-generated transaction (which becomes manual)
       const duplicate = await tx.forecastTransaction.findFirst({
         where: {
           forecastId,
           recurringPatternId: txnData.recurringPatternId,
-          isManual: false,
           date: txnData.date,
           name: txnData.name,
           amount: {

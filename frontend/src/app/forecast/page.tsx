@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ForecastChart from '@/components/ForecastChart';
@@ -29,17 +29,19 @@ export default function ForecastPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [months, setMonths] = useState(3);
+  const [monthsInput, setMonthsInput] = useState('3');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
+  const [showManualForm, setShowManualForm] = useState(false);
 
   useEffect(() => {
-    if (accountId) {
-      generateForecast();
-    }
-  }, [accountId, months]);
+    // Sync input value when months changes externally
+    setMonthsInput(months.toString());
+  }, [months]);
 
-  const generateForecast = async () => {
+  // Generate forecast function that accepts months as parameter for explicit calls
+  const generateForecastWithMonths = useCallback(async (monthsValue: number) => {
     if (!accountId) return;
     setLoading(true);
     setError(null);
@@ -52,8 +54,16 @@ export default function ForecastPage() {
         return;
       }
 
+      // Validate months is a valid number
+      const validMonths = isNaN(monthsValue) || monthsValue < 1 || monthsValue > 24 ? 3 : monthsValue;
+      
       const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + months);
+      endDate.setMonth(endDate.getMonth() + validMonths);
+      
+      // Validate the date is valid
+      if (isNaN(endDate.getTime())) {
+        throw new Error('Invalid date calculated from forecast horizon');
+      }
 
       const response = await fetch(`${API_URL}/api/forecasts/generate`, {
         method: 'POST',
@@ -96,7 +106,19 @@ export default function ForecastPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [accountId]);
+
+  // Wrapper that uses current months state (for useEffect)
+  const generateForecast = useCallback(() => {
+    return generateForecastWithMonths(months);
+  }, [generateForecastWithMonths, months]);
+
+  useEffect(() => {
+    // Only generate forecast if months is valid
+    if (accountId && !isNaN(months) && months >= 1 && months <= 24) {
+      generateForecast();
+    }
+  }, [accountId, months, generateForecast]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -139,22 +161,50 @@ export default function ForecastPage() {
           date: editDate,
         }),
       });
-      if (response.ok && forecastId) {
+      if (response.ok) {
+        const data = await response.json();
         setEditingId(null);
-        // Refresh forecast
-        const refreshResponse = await fetch(`${API_URL}/api/forecasts/${forecastId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-        if (refreshResponse.ok) {
-          const data = await refreshResponse.json();
-          setTransactions(data.forecast.forecastTransactions || []);
-          setBalanceSnapshots(data.balanceSnapshots || []);
+        setEditAmount('');
+        setEditDate('');
+        
+        // Update immediately with returned data
+        if (data.balanceSnapshots) {
+          setBalanceSnapshots(data.balanceSnapshots);
         }
+        if (data.forecast) {
+          setForecast(data.forecast);
+        }
+        
+        // Update the transaction in the local state immediately
+        if (data.transaction) {
+          setTransactions(prev => prev.map(t => 
+            t.id === id ? { ...t, ...data.transaction } : t
+          ));
+        }
+        
+        // Refresh transactions list to ensure consistency
+        if (forecastId) {
+          const refreshResponse = await fetch(`${API_URL}/api/forecasts/${forecastId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json();
+            setTransactions(refreshData.forecast.forecastTransactions || []);
+            // Use balance snapshots from update response if available, otherwise from refresh
+            if (!data.balanceSnapshots && refreshData.balanceSnapshots) {
+              setBalanceSnapshots(refreshData.balanceSnapshots);
+            }
+          }
+        }
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || 'Failed to update transaction');
       }
     } catch (error) {
       console.error('Error updating transaction:', error);
+      alert('Error updating transaction. Please try again.');
     }
   };
 
@@ -182,8 +232,45 @@ export default function ForecastPage() {
             type="number"
             min="1"
             max="24"
-            value={months}
-            onChange={(e) => setMonths(parseInt(e.target.value))}
+            value={monthsInput}
+            onChange={(e) => {
+              // Allow free typing in the input
+              setMonthsInput(e.target.value);
+            }}
+            onBlur={(e) => {
+              // Validate and update months when user finishes editing
+              const value = e.target.value.trim();
+              let newMonths: number | null = null;
+              
+              if (value === '') {
+                setMonthsInput('3');
+                newMonths = 3;
+                setMonths(newMonths);
+              } else {
+                const numValue = parseInt(value, 10);
+                if (!isNaN(numValue) && numValue >= 1 && numValue <= 24) {
+                  setMonthsInput(numValue.toString());
+                  newMonths = numValue;
+                  setMonths(newMonths);
+                } else {
+                  // Reset to current valid value if invalid
+                  setMonthsInput(months.toString());
+                  return; // Don't regenerate if invalid
+                }
+              }
+              
+              // Explicitly trigger forecast regeneration with the new value
+              // This ensures it happens immediately with the correct value
+              if (newMonths !== null && accountId) {
+                generateForecastWithMonths(newMonths);
+              }
+            }}
+            onKeyDown={(e) => {
+              // Trigger forecast regeneration on Enter key
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              }
+            }}
             className="bg-gray-800 text-white px-4 py-2 rounded border border-gray-700 w-32"
           />
         </div>
@@ -200,12 +287,18 @@ export default function ForecastPage() {
         ) : forecast && balanceSnapshots.length > 0 ? (
           <>
             <div className="mb-6">
-              <ForecastChart balanceSnapshots={balanceSnapshots} transactions={transactions} />
+              <ForecastChart 
+                key={`${forecast.id}-${forecast.startDate}-${forecast.endDate}`}
+                balanceSnapshots={balanceSnapshots} 
+                transactions={transactions}
+                startDate={forecast.startDate}
+                endDate={forecast.endDate}
+              />
             </div>
 
             <div className="mb-6">
               <h2 className="text-2xl font-semibold mb-4">Projected Transactions</h2>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
                 {[...transactions].sort((a, b) => {
                   // Sort by date first
                   const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
@@ -290,25 +383,45 @@ export default function ForecastPage() {
             </div>
 
             {forecastId && (
-              <ManualTransactionForm
-                accountId={accountId}
-                forecastId={forecastId}
-                onSuccess={() => {
-                  if (forecastId) {
-                    const token = localStorage.getItem('token');
-                    fetch(`${API_URL}/api/forecasts/${forecastId}`, {
-                      headers: {
-                        'Authorization': `Bearer ${token}`,
-                      },
-                    })
-                      .then(res => res.json())
-                      .then(data => {
-                        setTransactions(data.forecast.forecastTransactions || []);
-                        setBalanceSnapshots(data.balanceSnapshots || []);
-                      });
-                  }
-                }}
-              />
+              <div className="mb-6">
+                <button
+                  onClick={() => setShowManualForm(!showManualForm)}
+                  className="w-full bg-gray-800 hover:bg-gray-700 rounded-lg p-4 flex justify-between items-center transition-colors"
+                >
+                  <h3 className="text-lg font-semibold">Add Manual Transaction</h3>
+                  <svg
+                    className={`w-5 h-5 transition-transform ${showManualForm ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showManualForm && (
+                  <div className="mt-4">
+                    <ManualTransactionForm
+                      accountId={accountId}
+                      forecastId={forecastId}
+                      onSuccess={() => {
+                        if (forecastId) {
+                          const token = localStorage.getItem('token');
+                          fetch(`${API_URL}/api/forecasts/${forecastId}`, {
+                            headers: {
+                              'Authorization': `Bearer ${token}`,
+                            },
+                          })
+                            .then(res => res.json())
+                            .then(data => {
+                              setTransactions(data.forecast.forecastTransactions || []);
+                              setBalanceSnapshots(data.balanceSnapshots || []);
+                            });
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             )}
           </>
         ) : (

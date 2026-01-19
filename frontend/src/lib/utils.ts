@@ -12,8 +12,24 @@ export function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
-export function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
+export function formatDate(date: Date | string | number | null | undefined): string {
+  if (!date) return '';
+  
+  let d: Date;
+  if (typeof date === 'number') {
+    // Handle timestamp
+    d = new Date(date);
+  } else if (typeof date === 'string') {
+    d = new Date(date);
+  } else {
+    d = date;
+  }
+  
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    return '';
+  }
+  
   // Extract UTC date components to avoid timezone shifts
   // Dates are stored at UTC noon, so we use UTC methods to get the date parts
   const year = d.getUTCFullYear();

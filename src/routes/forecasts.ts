@@ -146,18 +146,68 @@ router.put('/transactions/:id', authenticateUser, async (req: AuthenticatedReque
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
+    // Update the transaction
+    // Mark as manual if it wasn't already, so user edits persist during forecast regeneration
+    // Keep recurringPatternId so we can prevent duplicates during regeneration
+    const updateData: any = {
+      ...(amount !== undefined && { amount }),
+      ...(date && { date: parseLocalDate(date) }),
+      ...(name && { name }),
+      ...(category !== undefined && { category }),
+      ...(note !== undefined && { note }),
+    };
+    
+    // If this transaction was generated from a pattern and is being edited,
+    // mark it as manual so it persists during forecast regeneration
+    // We keep the recurringPatternId so duplicate detection can prevent recreating it
+    if (!transaction.isManual && transaction.recurringPatternId) {
+      updateData.isManual = true;
+    }
+    
     const updated = await prisma.forecastTransaction.update({
       where: { id },
-      data: {
-        ...(amount !== undefined && { amount }),
-        ...(date && { date: parseLocalDate(date) }),
-        ...(name && { name }),
-        ...(category !== undefined && { category }),
-        ...(note !== undefined && { note }),
-      },
+      data: updateData,
     });
 
-    res.json({ transaction: updated });
+    // Get the forecast to recalculate balances
+    // Only proceed if forecastId exists (it's nullable in the schema)
+    const forecast = transaction.forecastId ? await prisma.forecast.findFirst({
+      where: { id: transaction.forecastId, userId },
+    }) : null;
+
+    if (forecast) {
+      // Recalculate balance snapshots
+      const balanceSnapshots = await forecastEngine.projectBalance(
+        userId,
+        transaction.accountId,
+        forecast.id,
+        forecast.initialBalance,
+        forecast.startDate,
+        forecast.endDate
+      );
+
+      // Update forecast with new projected balance
+      const finalBalance = balanceSnapshots[balanceSnapshots.length - 1]?.balance || forecast.initialBalance;
+      await prisma.forecast.update({
+        where: { id: forecast.id },
+        data: {
+          projectedBalance: finalBalance,
+        },
+      });
+
+      // Return updated transaction, balance snapshots, and forecast
+      res.json({ 
+        transaction: updated,
+        balanceSnapshots,
+        forecast: {
+          ...forecast,
+          projectedBalance: finalBalance,
+        },
+      });
+    } else {
+      // If forecast not found, just return the updated transaction
+      res.json({ transaction: updated });
+    }
   } catch (error: any) {
     console.error('Error updating transaction:', error);
     res.status(500).json({ error: error.message || 'Failed to update transaction' });
@@ -197,27 +247,94 @@ router.delete('/transactions/:id', authenticateUser, async (req: AuthenticatedRe
 router.post('/transactions/manual', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
     const userId = req.user!.id;
-    const { accountId, forecastId, amount, date, name, category, note } = req.body;
+    const { 
+      accountId, 
+      forecastId, 
+      amount, 
+      transactionType: requestedTransactionType,
+      date, 
+      name, 
+      category, 
+      note,
+      isRecurring,
+      frequency,
+      dayOfMonth,
+      dayOfWeek,
+      recurringEndDate
+    } = req.body;
 
     if (!accountId || !forecastId || !amount || !date || !name) {
       return res.status(400).json({ error: 'accountId, forecastId, amount, date, and name are required' });
     }
 
+    if (isRecurring && !frequency) {
+      return res.status(400).json({ error: 'frequency is required when creating a recurring transaction' });
+    }
+
+    // Use explicit transactionType from request, or infer from amount sign as fallback
+    const transactionType = requestedTransactionType || (amount > 0 ? 'income' : 'expense');
+
+    // Parse dates using parseLocalDate to ensure timezone-safe date handling
+    // This converts YYYY-MM-DD strings to UTC dates at noon, preventing timezone shifts
+    const transactionDate = parseLocalDate(date);
+    const patternEndDate = recurringEndDate ? parseLocalDate(recurringEndDate) : null;
+
+    // If recurring, create a recurring pattern first
+    let recurringPatternId: string | null = null;
+    let pattern: any = null;
+    if (isRecurring) {
+      // Normalize merchant name (same logic as in recurring-detector.ts)
+      const normalizeMerchantName = (name: string): string => {
+        return name
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .replace(/[^a-z0-9\s]/g, '')
+          .trim();
+      };
+
+      pattern = await prisma.recurringPattern.create({
+        data: {
+          userId,
+          accountId,
+          name,
+          merchantName: normalizeMerchantName(name),
+          amount: Math.abs(amount), // Store as positive, sign determined by transactionType
+          amountVariance: Math.abs(amount) * 0.10, // ±10% default variance
+          frequency,
+          dayOfMonth: (frequency === 'monthly' || frequency === 'quarterly' || frequency === 'yearly') 
+            ? (dayOfMonth ? parseInt(dayOfMonth, 10) : null)
+            : null,
+          dayOfWeek: (frequency === 'weekly' || frequency === 'biweekly')
+            ? (dayOfWeek !== undefined && dayOfWeek !== '' ? parseInt(dayOfWeek, 10) : null)
+            : null,
+          startDate: transactionDate,
+          endDate: patternEndDate,
+          transactionType,
+          confidence: 0.9, // High confidence for manually created patterns
+        },
+      });
+
+      recurringPatternId = pattern.id;
+    }
+
+    // Create the forecast transaction
+    // Use parseLocalDate to ensure timezone-safe date storage (UTC noon)
     const transaction = await prisma.forecastTransaction.create({
       data: {
         userId,
         accountId,
         forecastId,
+        recurringPatternId,
         isManual: true,
         amount,
-        date: parseLocalDate(date),
+        date: transactionDate,
         name,
         category: category || null,
         note: note || null,
       },
     });
 
-    res.json({ transaction });
+    res.json({ transaction, pattern });
   } catch (error: any) {
     console.error('Error creating manual transaction:', error);
     res.status(500).json({ error: error.message || 'Failed to create manual transaction' });

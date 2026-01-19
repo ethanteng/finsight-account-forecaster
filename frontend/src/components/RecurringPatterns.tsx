@@ -45,6 +45,7 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
     frequency: '',
     dayOfMonth: '',
     dayOfWeek: '',
+    amount: '',
   });
   const [transactionEditName, setTransactionEditName] = useState('');
   const [showAvailableTransactions, setShowAvailableTransactions] = useState(false);
@@ -172,6 +173,9 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
       if (patternEditForm.name && patternEditForm.name.trim()) {
         updateData.name = patternEditForm.name.trim();
       }
+      if (patternEditForm.amount !== undefined && patternEditForm.amount !== '') {
+        updateData.amount = parseFloat(patternEditForm.amount);
+      }
       if (endDate !== undefined && endDate !== '') {
         updateData.endDate = endDate || null;
       }
@@ -216,6 +220,7 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
           frequency: '',
           dayOfMonth: '',
           dayOfWeek: '',
+          amount: '',
         });
         fetchPatterns();
       } else {
@@ -399,6 +404,18 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                           placeholder="Pattern name"
                         />
                       </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Amount (always positive)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={patternEditForm.amount !== '' ? patternEditForm.amount : Math.abs(pattern.amount).toString()}
+                          onChange={(e) => setPatternEditForm({ ...patternEditForm, amount: e.target.value })}
+                          className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                          placeholder="Amount"
+                        />
+                      </div>
                       <div className="flex gap-2">
                         <div className="flex-1">
                           <label className="block text-xs text-gray-400 mb-1">Start Date</label>
@@ -477,12 +494,13 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                           onClick={() => {
                             setEditingId(null);
                             setEndDate('');
-                            setPatternEditForm({
-                              startDate: '',
-                              frequency: '',
-                              dayOfMonth: '',
-                              dayOfWeek: '',
-                            });
+                          setPatternEditForm({
+                            startDate: '',
+                            frequency: '',
+                            dayOfMonth: '',
+                            dayOfWeek: '',
+                            amount: '',
+                          });
                           }}
                           className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded text-sm flex-1"
                         >
@@ -502,6 +520,7 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                             frequency: '',
                             dayOfMonth: pattern.dayOfMonth !== null ? pattern.dayOfMonth.toString() : '',
                             dayOfWeek: pattern.dayOfWeek !== null ? pattern.dayOfWeek.toString() : '',
+                            amount: Math.abs(pattern.amount).toString(),
                           });
                         }}
                         className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"

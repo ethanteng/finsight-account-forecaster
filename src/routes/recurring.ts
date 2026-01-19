@@ -91,7 +91,8 @@ router.put('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, 
       updateData.endDate = endDate ? new Date(endDate) : null;
     }
     if (amount !== undefined) {
-      updateData.amount = amount;
+      // Store amount as positive value (sign determined by transactionType)
+      updateData.amount = Math.abs(amount);
     }
     if (frequency) {
       updateData.frequency = frequency;

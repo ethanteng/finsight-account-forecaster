@@ -2,10 +2,12 @@ import { Router } from 'express';
 import { authenticateUser, AuthenticatedRequest } from '../auth/middleware';
 import { TransactionService } from '../services/transaction-service';
 import { RecurringDetector } from '../services/recurring-detector';
+import { getPrismaClient } from '../prisma-client';
 
 const router = Router();
 const transactionService = new TransactionService();
 const recurringDetector = new RecurringDetector();
+const prisma = getPrismaClient();
 
 // Get transactions for an account
 router.get('/account/:accountId', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
@@ -35,6 +37,67 @@ router.get('/account/:accountId', authenticateUser, async (req: AuthenticatedReq
   }
 });
 
+// Update transaction name/description
+router.put('/:id', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
+  try {
+    const userId = req.user!.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { name } = req.body;
+
+    console.log(`[PUT /api/transactions/${id}] Updating transaction name for user ${userId}`);
+    console.log(`[PUT /api/transactions/${id}] Request body:`, { name });
+
+    if (!id) {
+      return res.status(400).json({ error: 'Transaction ID is required' });
+    }
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Transaction name is required' });
+    }
+
+    // Verify transaction belongs to user
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, userId },
+    });
+
+    if (!transaction) {
+      console.log(`[PUT /api/transactions/${id}] Transaction not found for user ${userId}`);
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    console.log(`[PUT /api/transactions/${id}] Found transaction:`, { 
+      id: transaction.id, 
+      currentName: transaction.name,
+      newName: name.trim() 
+    });
+
+    // When user edits the name, preserve the originalDescription if it exists
+    // This helps us detect user edits during future syncs
+    const updateData: any = { name: name.trim() };
+    
+    // If originalDescription is not set, set it to the current name before update
+    // (which should be the original Plaid name)
+    if (!transaction.originalDescription) {
+      updateData.originalDescription = transaction.name;
+    }
+
+    const updated = await prisma.transaction.update({
+      where: { id },
+      data: updateData,
+    });
+
+    console.log(`[PUT /api/transactions/${id}] Transaction updated successfully:`, { 
+      id: updated.id, 
+      name: updated.name 
+    });
+
+    res.json({ transaction: updated });
+  } catch (error: any) {
+    console.error(`[PUT /api/transactions/:id] Error updating transaction:`, error);
+    res.status(500).json({ error: error.message || 'Failed to update transaction' });
+  }
+});
+
 // Sync transactions from Plaid
 router.post('/sync/:accountId', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
@@ -47,17 +110,10 @@ router.post('/sync/:accountId', authenticateUser, async (req: AuthenticatedReque
 
     const result = await transactionService.syncAndPersistTransactions(userId, accountId);
 
-    // Automatically detect recurring patterns after syncing transactions
-    let patternsDetected = 0;
-    try {
-      console.log(`Auto-detecting patterns for account ${accountId} after syncing ${result.added} transactions`);
-      const patterns = await recurringDetector.redetectPatterns(userId, accountId, 0.5); // Lower threshold for auto-detection
-      patternsDetected = patterns.length;
-      console.log(`Detected ${patternsDetected} recurring patterns`);
-    } catch (error: any) {
-      console.error('Error auto-detecting patterns after sync:', error);
-      // Don't fail the sync if pattern detection fails
-    }
+    // Note: We no longer auto-detect patterns on sync to preserve user-created patterns
+    // Users can manually trigger pattern detection from the Recurring Patterns page
+    // This prevents losing manually created patterns and edits when syncing transactions
+    const patternsDetected = 0;
 
     res.json({
       success: true,

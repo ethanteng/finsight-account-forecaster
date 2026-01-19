@@ -68,7 +68,7 @@ router.put('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, 
   try {
     const userId = req.user!.id;
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { endDate, amount, frequency } = req.body;
+    const { endDate, amount, frequency, startDate, dayOfMonth, dayOfWeek, name } = req.body;
 
     if (!id) {
       return res.status(400).json({ error: 'Pattern ID is required' });
@@ -82,13 +82,50 @@ router.put('/patterns/:id', authenticateUser, async (req: AuthenticatedRequest, 
       return res.status(404).json({ error: 'Pattern not found' });
     }
 
+    const updateData: any = {};
+    
+    if (name !== undefined && name !== null && typeof name === 'string' && name.trim().length > 0) {
+      updateData.name = name.trim();
+    }
+    if (endDate !== undefined) {
+      updateData.endDate = endDate ? new Date(endDate) : null;
+    }
+    if (amount !== undefined) {
+      updateData.amount = amount;
+    }
+    if (frequency) {
+      updateData.frequency = frequency;
+      // Clear dayOfMonth/dayOfWeek if frequency changes
+      if (frequency === 'daily') {
+        updateData.dayOfMonth = null;
+        updateData.dayOfWeek = null;
+      } else if (frequency === 'weekly' || frequency === 'biweekly') {
+        updateData.dayOfMonth = null;
+        if (dayOfWeek !== undefined) {
+          updateData.dayOfWeek = dayOfWeek !== null ? parseInt(dayOfWeek, 10) : null;
+        }
+      } else if (frequency === 'monthly' || frequency === 'quarterly' || frequency === 'yearly') {
+        updateData.dayOfWeek = null;
+        if (dayOfMonth !== undefined) {
+          updateData.dayOfMonth = dayOfMonth !== null ? parseInt(dayOfMonth, 10) : null;
+        }
+      }
+    } else {
+      // If frequency isn't changing, still allow updating dayOfMonth/dayOfWeek
+      if (dayOfMonth !== undefined) {
+        updateData.dayOfMonth = dayOfMonth !== null ? parseInt(dayOfMonth, 10) : null;
+      }
+      if (dayOfWeek !== undefined) {
+        updateData.dayOfWeek = dayOfWeek !== null ? parseInt(dayOfWeek, 10) : null;
+      }
+    }
+    if (startDate !== undefined) {
+      updateData.startDate = new Date(startDate);
+    }
+
     const updated = await prisma.recurringPattern.update({
       where: { id },
-      data: {
-        ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
-        ...(amount !== undefined && { amount }),
-        ...(frequency && { frequency }),
-      },
+      data: updateData,
     });
 
     res.json({ pattern: updated });

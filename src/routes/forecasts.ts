@@ -7,6 +7,24 @@ const router = Router();
 const prisma = getPrismaClient();
 const forecastEngine = new ForecastEngine();
 
+// Helper function to parse date string as UTC date at noon
+// This prevents timezone shifts when storing dates from date input fields
+// By using UTC noon, we ensure the date part is preserved regardless of server timezone
+function parseLocalDate(dateString: string): Date {
+  // Parse date string in format YYYY-MM-DD
+  const parts = dateString.split('-');
+  if (parts.length !== 3) {
+    // Fallback to standard parsing if format is unexpected
+    return new Date(dateString);
+  }
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-indexed
+  const day = parseInt(parts[2], 10);
+  // Create date at UTC noon to avoid timezone shifts and DST issues
+  // This ensures the date part (year-month-day) is preserved
+  return new Date(Date.UTC(year, month, day, 12, 0, 0));
+}
+
 // Generate new forecast
 router.post('/generate', authenticateUser, async (req: AuthenticatedRequest, res: any) => {
   try {
@@ -132,7 +150,7 @@ router.put('/transactions/:id', authenticateUser, async (req: AuthenticatedReque
       where: { id },
       data: {
         ...(amount !== undefined && { amount }),
-        ...(date && { date: new Date(date) }),
+        ...(date && { date: parseLocalDate(date) }),
         ...(name && { name }),
         ...(category !== undefined && { category }),
         ...(note !== undefined && { note }),
@@ -192,7 +210,7 @@ router.post('/transactions/manual', authenticateUser, async (req: AuthenticatedR
         forecastId,
         isManual: true,
         amount,
-        date: new Date(date),
+        date: parseLocalDate(date),
         name,
         category: category || null,
         note: note || null,

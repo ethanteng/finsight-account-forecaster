@@ -91,24 +91,60 @@ export async function persistTransactionsToDb(
         const normalizedAmount = -transaction.amount;
 
         if (existing) {
-          // Update existing transaction
+          // Preserve user-edited transaction name
+          // Strategy: If the current name differs from what Plaid is sending,
+          // and we have an originalDescription that matches Plaid's name,
+          // then the user must have edited it - preserve the current name.
+          // Otherwise, update to Plaid's name.
+          const plaidName = transaction.name;
+          const currentName = existing.name;
+          const originalDesc = existing.originalDescription;
+          
+          // Determine if name was edited by user:
+          // 1. If originalDescription exists and matches Plaid name, but current name differs -> edited
+          // 2. If originalDescription is null (old transaction), be conservative:
+          //    - If current name differs from Plaid name AND from merchantName, likely edited -> preserve
+          //    - Otherwise, update to Plaid name and set originalDescription
+          let preserveName = false;
+          
+          if (originalDesc !== null && originalDesc !== undefined) {
+            // We have original description - if current name differs from both Plaid and original, it was edited
+            preserveName = currentName !== plaidName && currentName !== originalDesc;
+          } else {
+            // No original description (old transaction) - be conservative
+            // If name differs significantly from Plaid name and merchant name, likely edited
+            const merchantName = existing.merchantName || '';
+            const nameDiffersFromPlaid = currentName !== plaidName;
+            const nameDiffersFromMerchant = currentName.toLowerCase().trim() !== merchantName.toLowerCase().trim();
+            
+            // If name differs from both Plaid and merchant, and it's not just a minor variation, preserve it
+            if (nameDiffersFromPlaid && nameDiffersFromMerchant && merchantName) {
+              preserveName = true;
+            }
+          }
+          
+          // Update existing transaction, preserving user-edited name
           await prisma.transaction.update({
             where: { plaidTransactionId },
             data: {
               amount: normalizedAmount,
               date: new Date(transaction.date),
-              name: transaction.name,
+              // Preserve name if it was edited by user, otherwise update to Plaid's name
+              name: preserveName ? currentName : plaidName,
               category,
               pending: transaction.pending || false,
               merchantName: transaction.merchant_name || null,
               paymentChannel: transaction.payment_channel || null,
               authorizedDate: transaction.authorized_date ? new Date(transaction.authorized_date) : null,
+              // Set originalDescription if not already set (for future comparisons)
+              originalDescription: existing.originalDescription || plaidName,
               lastSynced: new Date(),
             },
           });
           updatedCount++;
         } else {
           // Create new transaction
+          const plaidName = transaction.name;
           await prisma.transaction.create({
             data: {
               plaidTransactionId,
@@ -116,13 +152,15 @@ export async function persistTransactionsToDb(
               userId,
               amount: normalizedAmount,
               date: new Date(transaction.date),
-              name: transaction.name,
+              name: plaidName,
               category,
               pending: transaction.pending || false,
               currency: transaction.iso_currency_code || transaction.currency || 'USD',
               merchantName: transaction.merchant_name || null,
               paymentChannel: transaction.payment_channel || null,
               authorizedDate: transaction.authorized_date ? new Date(transaction.authorized_date) : null,
+              // Store original description for future comparison
+              originalDescription: plaidName,
               lastSynced: new Date(),
             },
           });

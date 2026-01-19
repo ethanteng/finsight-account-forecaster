@@ -13,7 +13,10 @@ interface RecurringPattern {
   frequency: string;
   transactionType: string;
   endDate: string | null;
+  startDate: string;
   confidence: number;
+  dayOfMonth: number | null;
+  dayOfWeek: number | null;
 }
 
 interface Transaction {
@@ -34,7 +37,16 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [endDate, setEndDate] = useState('');
+  const [patternEditForm, setPatternEditForm] = useState({
+    name: '',
+    startDate: '',
+    frequency: '',
+    dayOfMonth: '',
+    dayOfWeek: '',
+  });
+  const [transactionEditName, setTransactionEditName] = useState('');
   const [showAvailableTransactions, setShowAvailableTransactions] = useState(false);
   const [creatingPattern, setCreatingPattern] = useState<string | null>(null);
   const [patternForm, setPatternForm] = useState({
@@ -110,7 +122,10 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
       
       if (response.ok) {
         const data = await response.json();
+        console.log('Fetched available transactions:', data.transactions?.length || 0);
         setAvailableTransactions(data.transactions || []);
+      } else {
+        console.error('Failed to fetch available transactions:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('Error fetching available transactions:', error);
@@ -149,24 +164,119 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
     }
   };
 
-  const handleUpdateEndDate = async (id: string) => {
+  const handleUpdatePattern = async (id: string) => {
     try {
       const token = localStorage.getItem('token');
+      const updateData: any = {};
+      
+      if (patternEditForm.name && patternEditForm.name.trim()) {
+        updateData.name = patternEditForm.name.trim();
+      }
+      if (endDate !== undefined && endDate !== '') {
+        updateData.endDate = endDate || null;
+      }
+      if (patternEditForm.startDate) {
+        updateData.startDate = patternEditForm.startDate;
+      }
+      if (patternEditForm.frequency) {
+        updateData.frequency = patternEditForm.frequency;
+        if (patternEditForm.frequency === 'monthly' || patternEditForm.frequency === 'quarterly' || patternEditForm.frequency === 'yearly') {
+          if (patternEditForm.dayOfMonth) {
+            updateData.dayOfMonth = parseInt(patternEditForm.dayOfMonth, 10);
+          }
+        } else if (patternEditForm.frequency === 'weekly' || patternEditForm.frequency === 'biweekly') {
+          if (patternEditForm.dayOfWeek) {
+            updateData.dayOfWeek = parseInt(patternEditForm.dayOfWeek, 10);
+          }
+        }
+      } else {
+        // If frequency isn't changing, still allow updating dayOfMonth/dayOfWeek
+        if (patternEditForm.dayOfMonth !== '') {
+          updateData.dayOfMonth = patternEditForm.dayOfMonth ? parseInt(patternEditForm.dayOfMonth, 10) : null;
+        }
+        if (patternEditForm.dayOfWeek !== '') {
+          updateData.dayOfWeek = patternEditForm.dayOfWeek ? parseInt(patternEditForm.dayOfWeek, 10) : null;
+        }
+      }
+
       const response = await fetch(`${API_URL}/api/recurring/patterns/${id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ endDate: endDate || null }),
+        body: JSON.stringify(updateData),
       });
       if (response.ok) {
         setEditingId(null);
         setEndDate('');
+        setPatternEditForm({
+          name: '',
+          startDate: '',
+          frequency: '',
+          dayOfMonth: '',
+          dayOfWeek: '',
+        });
         fetchPatterns();
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || 'Failed to update pattern');
       }
     } catch (error) {
       console.error('Error updating pattern:', error);
+      alert('Error updating pattern');
+    }
+  };
+
+  const handleUpdateTransactionName = async (id: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('Not authenticated. Please log in again.');
+        return;
+      }
+      if (!transactionEditName.trim()) {
+        alert('Transaction name cannot be empty');
+        return;
+      }
+      const response = await fetch(`${API_URL}/api/transactions/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: transactionEditName.trim() }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Transaction updated successfully:', data);
+        
+        // Update the transaction in the local state immediately
+        setAvailableTransactions(prev => 
+          prev.map(t => t.id === id ? { ...t, name: data.transaction.name } : t)
+        );
+        
+        // Clear editing state
+        setEditingTransactionId(null);
+        setTransactionEditName('');
+        
+        // Also refresh from server to ensure consistency
+        fetchAvailableTransactions();
+      } else {
+        let errorMessage = 'Failed to update transaction';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        console.error('Error updating transaction:', errorMessage, response.status);
+        alert(errorMessage);
+      }
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      alert('Network error updating transaction. Please check your connection.');
     }
   };
 
@@ -271,45 +381,132 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                     {formatCurrency(pattern.amount)} • {pattern.frequency} • {pattern.transactionType}
                   </p>
                   <p className="text-xs text-gray-500">Confidence: {(pattern.confidence * 100).toFixed(0)}%</p>
+                  <p className="text-xs text-gray-500">Starts: {new Date(pattern.startDate).toLocaleDateString()}</p>
                   {pattern.endDate && (
                     <p className="text-xs text-yellow-400">Ends: {new Date(pattern.endDate).toLocaleDateString()}</p>
                   )}
                 </div>
                 <div className="flex gap-2">
                   {editingId === pattern.id ? (
-                    <div className="flex gap-2">
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-gray-700 text-white px-2 py-1 rounded text-sm"
-                      />
-                      <button
-                        onClick={() => handleUpdateEndDate(pattern.id)}
-                        className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingId(null);
-                          setEndDate('');
-                        }}
-                        className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded text-sm"
-                      >
-                        Cancel
-                      </button>
+                    <div className="flex flex-col gap-2 min-w-[300px]">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Transaction Name</label>
+                        <input
+                          type="text"
+                          value={patternEditForm.name || pattern.name}
+                          onChange={(e) => setPatternEditForm({ ...patternEditForm, name: e.target.value })}
+                          className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                          placeholder="Pattern name"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-400 mb-1">Start Date</label>
+                          <input
+                            type="date"
+                            value={patternEditForm.startDate}
+                            onChange={(e) => setPatternEditForm({ ...patternEditForm, startDate: e.target.value })}
+                            className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-400 mb-1">End Date</label>
+                          <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs text-gray-400 mb-1">Frequency</label>
+                          <select
+                            value={patternEditForm.frequency || pattern.frequency}
+                            onChange={(e) => setPatternEditForm({ ...patternEditForm, frequency: e.target.value })}
+                            className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                          >
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="biweekly">Biweekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                            <option value="yearly">Yearly</option>
+                          </select>
+                        </div>
+                        {(patternEditForm.frequency === 'monthly' || patternEditForm.frequency === 'quarterly' || patternEditForm.frequency === 'yearly' || 
+                          (!patternEditForm.frequency && (pattern.frequency === 'monthly' || pattern.frequency === 'quarterly' || pattern.frequency === 'yearly'))) && (
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-400 mb-1">Day of Month</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="31"
+                              value={patternEditForm.dayOfMonth !== '' ? patternEditForm.dayOfMonth : (pattern.dayOfMonth || '')}
+                              onChange={(e) => setPatternEditForm({ ...patternEditForm, dayOfMonth: e.target.value })}
+                              className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                              placeholder="1-31"
+                            />
+                          </div>
+                        )}
+                        {(patternEditForm.frequency === 'weekly' || patternEditForm.frequency === 'biweekly' || 
+                          (!patternEditForm.frequency && (pattern.frequency === 'weekly' || pattern.frequency === 'biweekly'))) && (
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-400 mb-1">Day of Week</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="6"
+                              value={patternEditForm.dayOfWeek !== '' ? patternEditForm.dayOfWeek : (pattern.dayOfWeek !== null ? pattern.dayOfWeek.toString() : '')}
+                              onChange={(e) => setPatternEditForm({ ...patternEditForm, dayOfWeek: e.target.value })}
+                              className="w-full bg-gray-700 text-white px-2 py-1 rounded text-sm"
+                              placeholder="0-6"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleUpdatePattern(pattern.id)}
+                          className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm flex-1"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingId(null);
+                            setEndDate('');
+                            setPatternEditForm({
+                              startDate: '',
+                              frequency: '',
+                              dayOfMonth: '',
+                              dayOfWeek: '',
+                            });
+                          }}
+                          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded text-sm flex-1"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <>
                       <button
                         onClick={() => {
                           setEditingId(pattern.id);
-                          setEndDate(pattern.endDate || '');
+                          setEndDate(pattern.endDate ? new Date(pattern.endDate).toISOString().split('T')[0] : '');
+                          setPatternEditForm({
+                            name: pattern.name,
+                            startDate: new Date(pattern.startDate).toISOString().split('T')[0],
+                            frequency: '',
+                            dayOfMonth: pattern.dayOfMonth !== null ? pattern.dayOfMonth.toString() : '',
+                            dayOfWeek: pattern.dayOfWeek !== null ? pattern.dayOfWeek.toString() : '',
+                          });
                         }}
                         className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm"
                       >
-                        Set End Date
+                        Edit
                       </button>
                       <button
                         onClick={() => handleDeleteClick(pattern.id)}
@@ -441,18 +638,58 @@ export default function RecurringPatterns({ accountId }: RecurringPatternsProps)
                     </div>
                   ) : (
                     <div className="flex justify-between items-center gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{transaction.name || transaction.merchantName || 'Unknown'}</p>
-                        <p className="text-sm text-gray-400">
-                          {formatCurrency(transaction.amount)} • {formatDate(transaction.date)}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleMarkAsRecurring(transaction)}
-                        className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm whitespace-nowrap flex-shrink-0"
-                      >
-                        Mark as Recurring
-                      </button>
+                      {editingTransactionId === transaction.id ? (
+                        <div className="flex gap-2 flex-1">
+                          <input
+                            type="text"
+                            value={transactionEditName}
+                            onChange={(e) => setTransactionEditName(e.target.value)}
+                            className="flex-1 bg-gray-700 text-white px-3 py-2 rounded text-sm"
+                            placeholder="Transaction name"
+                          />
+                          <button
+                            onClick={() => handleUpdateTransactionName(transaction.id)}
+                            className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded text-sm"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingTransactionId(null);
+                              setTransactionEditName('');
+                            }}
+                            className="bg-gray-600 hover:bg-gray-700 px-3 py-2 rounded text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{transaction.name || transaction.merchantName || 'Unknown'}</p>
+                            <p className="text-sm text-gray-400">
+                              {formatCurrency(transaction.amount)} • {formatDate(transaction.date)}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setEditingTransactionId(transaction.id);
+                                setTransactionEditName(transaction.name || transaction.merchantName || '');
+                              }}
+                              className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded text-sm whitespace-nowrap"
+                            >
+                              Edit Name
+                            </button>
+                            <button
+                              onClick={() => handleMarkAsRecurring(transaction)}
+                              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm whitespace-nowrap flex-shrink-0"
+                            >
+                              Mark as Recurring
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

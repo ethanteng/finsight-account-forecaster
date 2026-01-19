@@ -294,23 +294,13 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Account Forecaster</h1>
-          <div className="flex gap-4 items-center">
-            {selectedAccountId && (
-              <Link
-                href={`/forecast?accountId=${selectedAccountId}`}
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold transition-colors"
-              >
-                View Forecast
-              </Link>
-            )}
-            <button
-              onClick={handleConnectAccount}
-              disabled={connecting}
-              className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              + Connect Account
-            </button>
-          </div>
+          <button
+            onClick={handleConnectAccount}
+            disabled={connecting}
+            className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            + Connect Account
+          </button>
         </div>
 
         {error && (
@@ -337,21 +327,31 @@ export default function Dashboard() {
           <>
             <div className="mb-6">
               <label className="block text-sm font-medium mb-2">Select Account</label>
-              <select
-                value={selectedAccountId || ''}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="bg-gray-800 text-white px-4 py-2 rounded border border-gray-700 w-full max-w-md focus:border-blue-500 focus:outline-none"
-              >
-                {accounts.length === 0 ? (
-                  <option value="">No accounts available</option>
-                ) : (
-                  accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name} ({account.subtype || account.type})
-                    </option>
-                  ))
+              <div className="flex gap-4 items-end">
+                <select
+                  value={selectedAccountId || ''}
+                  onChange={(e) => setSelectedAccountId(e.target.value)}
+                  className="bg-gray-800 text-white px-4 py-2 rounded border border-gray-700 w-full max-w-md focus:border-blue-500 focus:outline-none"
+                >
+                  {accounts.length === 0 ? (
+                    <option value="">No accounts available</option>
+                  ) : (
+                    accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} ({account.subtype || account.type})
+                      </option>
+                    ))
+                  )}
+                </select>
+                {selectedAccountId && (
+                  <Link
+                    href={`/forecast?accountId=${selectedAccountId}`}
+                    className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold transition-colors whitespace-nowrap"
+                  >
+                    View Forecast
+                  </Link>
                 )}
-              </select>
+              </div>
             </div>
 
             {selectedAccount && (

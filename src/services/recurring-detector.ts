@@ -268,18 +268,23 @@ export class RecurringDetector {
   }
 
   /**
-   * Re-detect patterns (delete old ones and create new)
+   * Re-detect patterns (delete old auto-detected ones and create new)
+   * Preserves manually created patterns (confidence >= 0.9)
    */
   async redetectPatterns(
     userId: string,
     accountId: string,
     minConfidence: number = 0.6
   ): Promise<any[]> {
-    // Delete existing patterns for this account
+    // Delete only auto-detected patterns (preserve manually created ones)
+    // Manually created patterns have confidence >= 0.9
     await prisma.recurringPattern.deleteMany({
       where: {
         userId,
         accountId,
+        confidence: {
+          lt: 0.9, // Less than 0.9 means it was auto-detected
+        },
       },
     });
 

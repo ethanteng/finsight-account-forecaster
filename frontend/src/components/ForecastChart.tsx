@@ -178,23 +178,39 @@ export default function ForecastChart({ balanceSnapshots, transactions = [], sta
   // Sort data by date to ensure proper ordering
   data.sort((a, b) => a.dateTimestamp - b.dateTimestamp);
 
+  // Deduplicate by timestamp to avoid duplicate keys in Recharts
+  const seenTimestamps = new Set<number>();
+  data = data.filter(d => {
+    if (seenTimestamps.has(d.dateTimestamp)) {
+      return false;
+    }
+    seenTimestamps.add(d.dateTimestamp);
+    return true;
+  });
+
   // Ensure we have data points at the exact start and end dates to constrain the chart
   if (startDate && endDate && data.length > 0) {
     const startStr = normalizeDate(startDate);
     const endStr = normalizeDate(endDate);
+    const startTimestamp = new Date(startStr).getTime();
+    const endTimestamp = new Date(endStr).getTime();
     const firstDataDate = data[0]?.date;
     const lastDataDate = data[data.length - 1]?.date;
     
     // Add start point if missing (use first balance)
-    if (startStr && firstDataDate !== startStr) {
+    // Check both date string and timestamp to avoid duplicates
+    if (startStr && firstDataDate !== startStr && !seenTimestamps.has(startTimestamp)) {
       const firstBalance = data[0]?.balance ?? 0;
-      data = [{ date: startStr, balance: firstBalance }, ...data];
+      data = [{ date: startStr, dateTimestamp: startTimestamp, balance: firstBalance }, ...data];
+      seenTimestamps.add(startTimestamp);
     }
     
     // Add end point if missing (use last balance)
-    if (endStr && lastDataDate !== endStr) {
+    // Check both date string and timestamp to avoid duplicates
+    if (endStr && lastDataDate !== endStr && !seenTimestamps.has(endTimestamp)) {
       const lastBalance = data[data.length - 1]?.balance ?? 0;
-      data = [...data, { date: endStr, balance: lastBalance }];
+      data = [...data, { date: endStr, dateTimestamp: endTimestamp, balance: lastBalance }];
+      seenTimestamps.add(endTimestamp);
     }
   }
 
@@ -206,8 +222,19 @@ export default function ForecastChart({ balanceSnapshots, transactions = [], sta
     // Remove any data points beyond the end date
     data = data.filter(d => d.dateTimestamp <= endTimestamp);
     
+    // Re-deduplicate after filtering to ensure no duplicates
+    const filteredTimestamps = new Set<number>();
+    data = data.filter(d => {
+      if (filteredTimestamps.has(d.dateTimestamp)) {
+        return false;
+      }
+      filteredTimestamps.add(d.dateTimestamp);
+      return true;
+    });
+    
     // Ensure we have a point exactly at the end date
-    const hasEndPoint = data.some(d => d.date === endStr);
+    // Check timestamp to avoid duplicates
+    const hasEndPoint = filteredTimestamps.has(endTimestamp);
     if (!hasEndPoint && data.length > 0) {
       const lastBalance = data[data.length - 1]?.balance ?? 0;
       data = [...data, { 

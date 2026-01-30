@@ -34,11 +34,33 @@ export default function ForecastPage() {
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
   const [showManualForm, setShowManualForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<'future' | 'past'>('future');
 
   useEffect(() => {
     // Sync input value when months changes externally
     setMonthsInput(months.toString());
   }, [months]);
+
+  // Helper function to categorize transactions into future and past
+  const categorizeTransactions = useCallback((transactions: ForecastTransaction[]) => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    return {
+      future: transactions.filter(t => {
+        const tDateStr = typeof t.date === 'string' 
+          ? t.date.split('T')[0] 
+          : t.date.toISOString().split('T')[0];
+        return tDateStr > todayStr;
+      }),
+      past: transactions.filter(t => {
+        const tDateStr = typeof t.date === 'string' 
+          ? t.date.split('T')[0] 
+          : t.date.toISOString().split('T')[0];
+        return tDateStr <= todayStr;
+      })
+    };
+  }, []);
 
   // Generate forecast function that accepts months as parameter for explicit calls
   const generateForecastWithMonths = useCallback(async (monthsValue: number) => {
@@ -298,21 +320,67 @@ export default function ForecastPage() {
 
             <div className="mb-6">
               <h2 className="text-2xl font-semibold mb-4">Projected Transactions</h2>
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                {[...transactions].sort((a, b) => {
-                  // Sort by date first
-                  const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
-                  const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
-                  const dateDiff = dateA.getTime() - dateB.getTime();
-                  
-                  // If dates are equal, sort by name (description)
-                  if (dateDiff === 0) {
-                    return (a.name || '').localeCompare(b.name || '');
-                  }
-                  
-                  return dateDiff;
-                }).map((transaction) => (
-                  <div key={transaction.id} className="bg-gray-800 rounded-lg p-4 flex justify-between items-center">
+              
+              {/* Tabs */}
+              {(() => {
+                const categorized = categorizeTransactions(transactions);
+                const futureCount = categorized.future.length;
+                const pastCount = categorized.past.length;
+                
+                return (
+                  <>
+                    <div className="flex border-b border-gray-700 mb-4">
+                      <button
+                        onClick={() => setActiveTab('future')}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          activeTab === 'future'
+                            ? 'border-b-2 border-blue-500 text-blue-400'
+                            : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Future Transactions ({futureCount})
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('past')}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          activeTab === 'past'
+                            ? 'border-b-2 border-blue-500 text-blue-400'
+                            : 'text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Past Transactions ({pastCount})
+                      </button>
+                    </div>
+
+                    {/* Transactions List */}
+                    <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                      {(() => {
+                        const transactionsToShow = activeTab === 'future' ? categorized.future : categorized.past;
+                        
+                        if (transactionsToShow.length === 0) {
+                          return (
+                            <div className="text-center py-8 text-gray-400">
+                              {activeTab === 'future' 
+                                ? 'No future transactions' 
+                                : 'No past transactions'}
+                            </div>
+                          );
+                        }
+
+                        return transactionsToShow.sort((a, b) => {
+                          // Sort by date first
+                          const dateA = typeof a.date === 'string' ? new Date(a.date) : a.date;
+                          const dateB = typeof b.date === 'string' ? new Date(b.date) : b.date;
+                          const dateDiff = dateA.getTime() - dateB.getTime();
+                          
+                          // If dates are equal, sort by name (description)
+                          if (dateDiff === 0) {
+                            return (a.name || '').localeCompare(b.name || '');
+                          }
+                          
+                          return dateDiff;
+                        }).map((transaction) => (
+                          <div key={transaction.id} className="bg-gray-800 rounded-lg p-4 flex justify-between items-center">
                     {editingId === transaction.id ? (
                       <div className="flex gap-2 flex-1">
                         <input
@@ -377,9 +445,13 @@ export default function ForecastPage() {
                         </div>
                       </>
                     )}
-                  </div>
-                ))}
-              </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {forecastId && (

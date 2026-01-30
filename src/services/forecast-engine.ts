@@ -8,6 +8,17 @@ interface BalanceSnapshot {
 }
 
 /**
+ * Check if a date is after today (not including today)
+ * Uses YYYY-MM-DD string comparison for timezone-safe comparison
+ */
+function isDateAfterToday(date: Date): boolean {
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const dateStr = date.toISOString().split('T')[0];
+  return dateStr > todayStr;
+}
+
+/**
  * Calculate next occurrence dates for a recurring pattern
  */
 function calculateNextOccurrences(
@@ -213,14 +224,6 @@ export class ForecastEngine {
       const occurrences = calculateNextOccurrences(pattern, startDate, endDate);
 
       for (const occurrenceDate of occurrences) {
-        // Determine amount (use pattern amount, adjust sign based on type)
-        let amount = pattern.amount;
-        if (pattern.transactionType === 'expense') {
-          amount = -Math.abs(amount);
-        } else {
-          amount = Math.abs(amount);
-        }
-
         // Normalize date to UTC noon to ensure consistent timestamps
         const dateStr = occurrenceDate.toISOString().split('T')[0];
         const normalizedDate = new Date(Date.UTC(
@@ -229,6 +232,19 @@ export class ForecastEngine {
           parseInt(dateStr.split('-')[2], 10),
           12, 0, 0, 0
         ));
+
+        // Filter out transactions for today or earlier - only include future transactions
+        if (!isDateAfterToday(normalizedDate)) {
+          continue;
+        }
+
+        // Determine amount (use pattern amount, adjust sign based on type)
+        let amount = pattern.amount;
+        if (pattern.transactionType === 'expense') {
+          amount = -Math.abs(amount);
+        } else {
+          amount = Math.abs(amount);
+        }
 
         const normalizedAmount = Math.round(amount * 100) / 100;
         const transactionKey = `${pattern.id}-${dateStr}-${pattern.name}-${normalizedAmount}`;
@@ -319,6 +335,11 @@ export class ForecastEngine {
       },
     });
 
+    // Filter out transactions for today or earlier - only apply future transactions
+    const futureTransactions = transactions.filter(transaction => 
+      isDateAfterToday(transaction.date)
+    );
+
     const snapshots: BalanceSnapshot[] = [];
     let currentBalance = initialBalance;
     let currentDate = new Date(startDate);
@@ -326,7 +347,7 @@ export class ForecastEngine {
 
     // Group transactions by date
     const transactionsByDate = new Map<string, any[]>();
-    for (const transaction of transactions) {
+    for (const transaction of futureTransactions) {
       const dateKey = transaction.date.toISOString().split('T')[0];
       if (!transactionsByDate.has(dateKey)) {
         transactionsByDate.set(dateKey, []);
